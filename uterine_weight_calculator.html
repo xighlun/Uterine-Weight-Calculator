@@ -1,0 +1,268 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Uterine Weight Estimator</title>
+<style>
+  :root {
+    --blue: #0072B2; --vermillion: #D55E00; --purple: #CC79A7; --teal: #009E73;
+    --ink: #1a1a1a; --muted: #5a5a5a; --bg: #f7f8fa; --card: #ffffff; --border: #dde1e6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--ink); margin: 0; padding: 20px;
+    display: flex; justify-content: center;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    max-width: 480px; width: 100%; padding: 28px 26px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  }
+  h1 { font-size: 1.35rem; margin: 0 0 4px 0; }
+  .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 22px; }
+  label { display: block; font-weight: 600; font-size: 0.92rem; margin-bottom: 6px; margin-top: 16px; }
+  .hint { font-weight: 400; color: var(--muted); font-size: 0.82rem; }
+  input[type=number] {
+    width: 100%; padding: 10px 12px; font-size: 1rem; border: 1px solid var(--border);
+    border-radius: 8px; background: #fcfcfd;
+  }
+  .dims { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  select {
+    width: 100%; padding: 10px 12px; font-size: 1rem; border: 1px solid var(--border);
+    border-radius: 8px; background: #fcfcfd;
+  }
+  button {
+    width: 100%; margin-top: 22px; padding: 13px; font-size: 1.02rem; font-weight: 600;
+    color: white; background: var(--blue); border: none; border-radius: 9px; cursor: pointer;
+  }
+  button:hover { background: #005a8c; }
+  #result { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); display: none; }
+  .estimate { font-size: 2.1rem; font-weight: 700; color: var(--blue); }
+  .estimate span { font-size: 1.1rem; font-weight: 500; color: var(--muted); }
+  .pi { font-size: 0.95rem; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+  #distChart { width: 100%; height: auto; margin-top: 14px; display: block; }
+  .chart-legend { display: flex; gap: 18px; justify-content: center; font-size: 0.76rem; color: var(--muted); margin-top: 2px; }
+  .chart-legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: middle; background: var(--blue); }
+  .meta { font-size: 0.8rem; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+  .warn { color: var(--vermillion); font-size: 0.82rem; margin-top: 8px; }
+  details { margin-top: 22px; font-size: 0.85rem; color: var(--muted); }
+  summary { cursor: pointer; font-weight: 600; color: var(--ink); }
+  .formula { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem;
+             background: #f2f3f5; padding: 10px; border-radius: 6px; margin-top: 8px; overflow-x: auto; }
+  footer { font-size: 0.72rem; color: var(--muted); margin-top: 22px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Uterine Weight Estimator</h1>
+  <div class="subtitle">Estimate specimen weight from ultrasound dimensions</div>
+
+  <label>Ultrasound dimensions (cm) <span class="hint">-- any order</span></label>
+  <div class="dims">
+    <input type="number" id="d1" step="0.1" min="0" placeholder="e.g. 9.5">
+    <input type="number" id="d2" step="0.1" min="0" placeholder="e.g. 7.2">
+    <input type="number" id="d3" step="0.1" min="0" placeholder="e.g. 6.0">
+  </div>
+
+  <label>Fibroids present?</label>
+  <select id="fibroids">
+    <option value="unknown">Unknown / not sure</option>
+    <option value="yes">Yes</option>
+    <option value="no">No</option>
+  </select>
+
+  <button onclick="calculate()">Estimate weight</button>
+
+  <div id="result">
+    <div class="estimate" id="estimateVal">-- <span>g</span></div>
+    <div class="pi" id="piVal"></div>
+    <svg id="distChart" viewBox="0 0 440 170"></svg>
+    <div class="chart-legend">
+      <span><span class="dot" style="opacity:0.85"></span>80% likely range</span>
+      <span><span class="dot" style="opacity:0.35"></span>95% likely range</span>
+    </div>
+    <div class="meta" id="metaVal"></div>
+    <div class="warn" id="warnVal"></div>
+  </div>
+
+  <details>
+    <summary>How this works</summary>
+    <p>Uterine volume is estimated with the prolate-ellipsoid formula,
+       volume (cm&sup3;) = (&pi;/6) &times; dimension1 &times; dimension2 &times; dimension3,
+       the same approach used by Kung &amp; Chang (1996). Weight is predicted from volume
+       using a two-part (segmented) log-log regression fit to 17,809 hysterectomy
+       cases from the Michigan Surgical Quality Collaborative (MSQC) registry, with the
+       relationship allowed to change at a volume of 170 cm&sup3;. If fibroid status is
+       specified, a refined version of the model (fit on 4,560 fibroid and 6,242
+       non-fibroid cases with known indication) is used instead. Predicted weight follows a
+       right-skewed (log-normal) distribution rather than a symmetric bell curve, which is
+       why the curve above is not centered on the estimate -- the shaded bands show the 80%
+       and 95% prediction intervals, i.e. the range within which the actual specimen weight
+       for an individual patient is expected to fall.</p>
+    <div class="formula" id="formulaVal"></div>
+  </details>
+
+  <footer>
+    Research tool derived from a retrospective cohort of 17,809 hysterectomy cases
+    in the Michigan Surgical Quality Collaborative (MSQC) registry. Provides a statistical
+    estimate to support, not replace, clinical judgment. Not validated as a diagnostic or
+    clinical decision-support device.
+  </footer>
+</div>
+
+<script>
+const THRESH = 170;
+const LTHRESH = Math.log(THRESH);
+const Z95 = 1.959964;
+const Z80 = 1.281552;
+
+const MODELS = {
+  primary:  { b0: 1.394915,  b1: 0.706889,  b2: 0.242518,  smear: 1.055828,  sigma: 0.330694,  label: "primary model (all cases)" },
+  yes:      { b0: 1.354909,  b1: 0.728569,  b2: 0.195076,  smear: 1.063792,  sigma: 0.350605,  label: "fibroids-adjusted model" },
+  no:       { b0: 1.517333, b1: 0.673220, b2: 0.242655, smear: 1.045072, sigma: 0.298289, label: "fibroids-adjusted model" }
+};
+
+function predictWeight(vol, m) {
+  const lvol = Math.log(vol);
+  const hinge = Math.max(lvol - LTHRESH, 0);
+  const lfit = m.b0 + m.b1 * lvol + m.b2 * hinge;
+  const fit = Math.exp(lfit) * m.smear;
+  const lower95 = Math.exp(lfit - Z95 * m.sigma) * m.smear;
+  const upper95 = Math.exp(lfit + Z95 * m.sigma) * m.smear;
+  const lower80 = Math.exp(lfit - Z80 * m.sigma) * m.smear;
+  const upper80 = Math.exp(lfit + Z80 * m.sigma) * m.smear;
+  return {
+    fit, lower95, upper95, lower80, upper80,
+    muPrime: Math.log(fit), sigma: m.sigma,
+    segment: vol < THRESH ? ("smaller uterus (<" + THRESH + " cm\u00b3)") : ("larger uterus (\u2265" + THRESH + " cm\u00b3)")
+  };
+}
+
+// Draws the predicted-weight distribution as a log-normal density curve
+// (right-skewed, not a symmetric bell -- an honest reflection of the
+// back-transformed residual distribution used throughout this analysis),
+// with the 80% and 95% prediction intervals shaded. No charting library --
+// plain inline SVG built from the same closed-form formula as the numeric
+// interval above, so the picture and the numbers always agree exactly.
+function drawDistribution(pred) {
+  const svg = document.getElementById("distChart");
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+  const muP = pred.muPrime, sigma = pred.sigma;
+  const xMin = Math.max(pred.lower95 * 0.72, pred.fit * 0.03);
+  const xMax = pred.upper95 * 1.28;
+
+  const W = 440, H = 170;
+  const padL = 16, padR = 16, padTop = 10, padBottom = 30;
+  const plotW = W - padL - padR, plotH = H - padTop - padBottom;
+  const baseY = padTop + plotH;
+
+  function pdf(x) {
+    return (1 / (x * sigma * Math.sqrt(2 * Math.PI))) *
+           Math.exp(-Math.pow(Math.log(x) - muP, 2) / (2 * sigma * sigma));
+  }
+  function sx(x) { return padL + (x - xMin) / (xMax - xMin) * plotW; }
+
+  const N = 140;
+  const pts = [];
+  let maxY = 0;
+  for (let i = 0; i <= N; i++) {
+    const x = xMin + (xMax - xMin) * i / N;
+    const y = pdf(x);
+    if (y > maxY) maxY = y;
+    pts.push([x, y]);
+  }
+  function sy(y) { return baseY - (y / maxY) * (plotH - 6); }
+
+  function bandPath(lo, hi) {
+    const steps = 50;
+    let d = "M " + sx(lo).toFixed(1) + " " + baseY.toFixed(1);
+    for (let i = 0; i <= steps; i++) {
+      const x = lo + (hi - lo) * i / steps;
+      d += " L " + sx(x).toFixed(1) + " " + sy(pdf(x)).toFixed(1);
+    }
+    d += " L " + sx(hi).toFixed(1) + " " + baseY.toFixed(1) + " Z";
+    return d;
+  }
+
+  const NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+
+  svg.appendChild(el("path", { d: bandPath(pred.lower95, pred.upper95), fill: "#0072B2", opacity: "0.16" }));
+  svg.appendChild(el("path", { d: bandPath(pred.lower80, pred.upper80), fill: "#0072B2", opacity: "0.38" }));
+
+  let curveD = "M " + sx(pts[0][0]).toFixed(1) + " " + sy(pts[0][1]).toFixed(1);
+  for (let i = 1; i < pts.length; i++) {
+    curveD += " L " + sx(pts[i][0]).toFixed(1) + " " + sy(pts[i][1]).toFixed(1);
+  }
+  svg.appendChild(el("path", { d: curveD, fill: "none", stroke: "#0072B2", "stroke-width": "1.6" }));
+  svg.appendChild(el("line", { x1: padL, x2: W - padR, y1: baseY, y2: baseY, stroke: "#c7cbd1", "stroke-width": "1" }));
+
+  const mx = sx(pred.fit), my = sy(pdf(pred.fit));
+  svg.appendChild(el("line", { x1: mx, x2: mx, y1: baseY, y2: my, stroke: "#1a1a1a", "stroke-width": "1.2", "stroke-dasharray": "3,2" }));
+  svg.appendChild(el("circle", { cx: mx, cy: my, r: 2.6, fill: "#1a1a1a" }));
+
+  function label(x, text, anchor) {
+    const t = el("text", { x: sx(x).toFixed(1), y: (baseY + 15).toFixed(1), "font-size": "9.5", fill: "#5a5a5a", "text-anchor": anchor });
+    t.textContent = text;
+    svg.appendChild(t);
+  }
+  label(pred.lower95, Math.round(pred.lower95).toLocaleString(), "start");
+  label(pred.fit, Math.round(pred.fit).toLocaleString() + " g", "middle");
+  label(pred.upper95, Math.round(pred.upper95).toLocaleString(), "end");
+}
+
+function calculate() {
+  const d1 = parseFloat(document.getElementById("d1").value);
+  const d2 = parseFloat(document.getElementById("d2").value);
+  const d3 = parseFloat(document.getElementById("d3").value);
+  const fibChoice = document.getElementById("fibroids").value;
+
+  const result = document.getElementById("result");
+  const warnEl = document.getElementById("warnVal");
+  warnEl.textContent = "";
+
+  if (!(d1 > 0) || !(d2 > 0) || !(d3 > 0)) {
+    result.style.display = "block";
+    document.getElementById("estimateVal").innerHTML = "-- <span>g</span>";
+    document.getElementById("piVal").textContent = "";
+    document.getElementById("metaVal").textContent = "";
+    document.getElementById("distChart").innerHTML = "";
+    warnEl.textContent = "Enter all three dimensions (values greater than 0) to calculate.";
+    return;
+  }
+
+  const vol = (Math.PI / 6) * d1 * d2 * d3;
+  const model = fibChoice === "yes" ? MODELS.yes : (fibChoice === "no" ? MODELS.no : MODELS.primary);
+  const pred = predictWeight(vol, model);
+
+  result.style.display = "block";
+  document.getElementById("estimateVal").innerHTML = Math.round(pred.fit).toLocaleString() + " <span>g</span>";
+  document.getElementById("piVal").innerHTML =
+    "80% prediction interval: " + Math.round(pred.lower80).toLocaleString() + " - " + Math.round(pred.upper80).toLocaleString() + " g<br>" +
+    "95% prediction interval: " + Math.round(pred.lower95).toLocaleString() + " - " + Math.round(pred.upper95).toLocaleString() + " g";
+  drawDistribution(pred);
+  document.getElementById("metaVal").textContent =
+    "Computed volume: " + vol.toFixed(1) + " cm\u00b3 (" + pred.segment + "); using " + model.label + ".";
+  document.getElementById("formulaVal").textContent =
+    "volume = (pi/6) x " + d1 + " x " + d2 + " x " + d3 + " = " + vol.toFixed(1) + " cm3\n" +
+    "ln(weight) = " + model.b0.toFixed(4) + " + " + model.b1.toFixed(4) + " x ln(volume)" +
+    (vol >= THRESH ? " + " + model.b2.toFixed(4) + " x hinge" : "") +
+    "\nweight = exp(ln(weight)) x " + model.smear.toFixed(4) + " (smearing correction)";
+
+  if (d1 < 1 || d1 > 40 || d2 < 1 || d2 > 40 || d3 < 1 || d3 > 40) {
+    warnEl.textContent = "Note: one or more dimensions is outside the 1-40 cm range seen in the data used to build this tool -- interpret with extra caution.";
+  }
+}
+</script>
+</body>
+</html>
+
